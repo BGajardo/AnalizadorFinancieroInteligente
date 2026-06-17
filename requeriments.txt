@@ -1,0 +1,26 @@
+# API
+fastapi
+uvicorn
+pydantic
+
+# MCP
+mcp
+
+# Ollama / OpenAI client
+openai
+
+# Base de datos
+psycopg2-binary
+pgvector
+
+# PDF
+reportlab
+
+# Variables de entorno
+python-dotenv
+
+# Embeddings ()
+httpx
+
+# Settings
+pydantic-settings

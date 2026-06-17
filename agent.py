@@ -1,0 +1,108 @@
+import json
+import asyncio
+from openai import OpenAI
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from config import settings
+
+
+SYSTEM_PROMPT = """
+Eres un analista financiero experto. Tienes acceso a herramientas 
+para consultar datos reales de la empresa.
+
+Reglas:
+- Siempre usa las herramientas para obtener datos reales, nunca inventes números
+- Piensa paso a paso antes de responder
+- Cuando termines de recopilar datos, redacta una respuesta clara y estructurada
+- Siempre indica de qué fuente vienen los datos (base de datos o documentos históricos)
+- Si necesitas varios datos, llama las herramientas de una en una
+"""
+
+
+class FinanceAgent:
+    
+    def __init__(self):
+        self.client = OpenAI(
+            base_url=settings.OLLAMA_URL,
+            api_key="ollama",
+        )
+        
+        self.model = settings.OLLAMA_MODEL_NAME
+        
+        async def run(self, pregunta:str) -> tuple[str, list[str]]:
+            """
+            Ejecuta el agent loop completo.
+            Retorna la respuesta final y una lista de herramientas usadas.
+            """
+            server_params = StdioServerParameters(
+                command="python",
+                args=["mcp_server.py"]
+            )
+            
+            async with stdio_client(server_params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    
+                    await session.initialize()
+                    
+                    tools = await self.build_tools(session)
+                    
+                    messages = [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": pregunta}
+                    ]
+                    
+                    herramientas_usadas = []
+                    
+                    while True:
+                        response = self.client.chat.completions.create(
+                            model=self.model,
+                            messages=messages,
+                            tools=tools,
+                        )
+                        
+                        message = response.choices[0].message
+                        
+                        if not message.tool_calls:
+                            return message.content, herramientas_usadas
+                        
+                        messages.append(message)
+                        
+                        for tool_call in message.tool_calls:
+                            nombre = tool_call.function.name
+                            arguments = json.loads(tool_call.function.arguments)
+                            
+                            print(f"[agente] usando herramienta : {nombre} ({arguments})")
+                            
+                            resultado = await session.call_tool(nombre, arguments)
+                            
+                            if nombre not in herramientas_usadas:
+                                herramientas_usadas.append(nombre)
+                                
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": str(resultado),
+                                })
+                            
+                            
+        async def _build_tools(self, session: ClientSession) -> list[dict]:
+            """
+            Convierte las herramientas registradas en el servidor MCP al formato que entiende la API de Ollama.
+            """
+            mcp_tools = await session.list_tools()
+            tools = []
+            
+            for tool in mcp_tools:
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description or "",
+                        "parameters": tool.parameters,
+                    }
+                })
+            return tools
+            
+            
+                            
