@@ -22,6 +22,18 @@ def crear_tablas():
     conn = get_vector_connection()
     cur = conn.cursor();
     
+    
+    cur.execute("""
+                CREATE TABLE IF NOT EXISTS conversaciones(
+                    id SERIAL PRIMARY KEY,
+                    session_id VARCHAR(100) NOT NULL,
+                    role VARCHAR(20) NOT NULL,
+                    contenido TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+                """)
+    
+    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS ventas (
             id      SERIAL PRIMARY KEY,
@@ -74,6 +86,31 @@ def crear_tablas():
     conn.close()
     print("Tablas creadas correctamente")
     
+    
+def guardar_mensaje(session_id: str, role:str, contenido:str):
+    conn = get_vector_connection()
+    cur = conn.cursor()
+    cur.execute("""
+                INSERT INTO conversaciones (session_id, role, contenido)
+                VALUES (%s, %s, %s)
+                """,(session_id, role, contenido))
+    conn.commit()
+    conn.close()
+
+
+def cargar_historial(session_id: str) ->list[dict]:
+    conn = get_vector_connection()
+    cur = conn.cursor()
+    cur.execute("""
+                SELECT role, contenido
+                FROM conversaciones
+                WHERE session_id = %s
+                ORDER BY created_at ASC
+                """, (session_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return [{"role": row[0], "content": row[1]} for row in rows]
+
     
 def seed_data():
     """

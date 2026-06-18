@@ -1,6 +1,7 @@
 import traceback
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from database import cargar_historial, get_vector_connection
 from pydantic import BaseModel
 from agent import FinanceAgent
 import uvicorn
@@ -21,10 +22,12 @@ app.add_middleware(
 
 class AskRequest(BaseModel):
     pregunta: str
+    session_id: str | None = None
     
 class AskResponse(BaseModel):
     respuesta: str
     herramientas_usadas: list[str]
+    session_id: str
     
 class ReportReponse(BaseModel):
     mensaje: str
@@ -36,8 +39,27 @@ async def health():
     """Verifica que el servidor este corriendo"""
     return {"status": "healthy"}
 
+
+
+@app.get("/conversacion/{sesion_id}")
+async def get_conversacion(session_id: str):
+    historial = cargar_historial(session_id)
+    return {"session_id": session_id, "mensajes": historial}
+
+
+@app.delete("/conversacion/{sesion_id}")
+async def delete_conversacion(sesion_id: str):
+    conn = get_vector_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM conversaciones WHERE session_id = %s", (sesion_id,))
+    conn.commit()
+    conn.close()
+    return {"mensaje": "Conversación eliminada"}
+
+
 @app.post("/ask", response_model=AskResponse)
 async def ask(body: AskRequest):
+    import uuid
     """
     Recibe una pregunta en lenguaje natural y le responde consultando Postgres y documentos financieros (RAG).
     
@@ -46,13 +68,15 @@ async def ask(body: AskRequest):
         "pregunta": "¿Cuanto gastamos de mas en enero 2025?"
     }
     """
+    session_id = body.session_id or str(uuid.uuid4())
+    
     if not body.pregunta.strip():
         raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
     
     try:
         agent = FinanceAgent()
-        respuesta, herramientas = await agent.run(body.pregunta)
-        return AskResponse(respuesta=respuesta, herramientas_usadas=herramientas)
+        respuesta, herramientas = await agent.run(body.pregunta, session_id)
+        return AskResponse(respuesta=respuesta, herramientas_usadas=herramientas, session_id= session_id)
     
     except Exception as e:
         traceback.print_exc()

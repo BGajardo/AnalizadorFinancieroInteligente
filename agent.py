@@ -1,7 +1,7 @@
 import json
 import asyncio
 from openai import OpenAI
-
+from database import cargar_historial, guardar_mensaje
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from config import settings
@@ -41,11 +41,13 @@ class FinanceAgent:
             
             self.model = settings.OLLAMA_MODEL
         
-        async def run(self, pregunta:str) -> tuple[str, list[str]]:
+        async def run(self, pregunta:str, session_id:str) -> tuple[str, list[str]]:
             """
             Ejecuta el agent loop completo.
             Retorna la respuesta final y una lista de herramientas usadas.
             """
+            
+            
             server_params = StdioServerParameters(
                 command="python",
                 args=["mcp_server.py"]
@@ -55,17 +57,31 @@ class FinanceAgent:
                 async with ClientSession(read, write) as session:
                     
                     await session.initialize()
-                    
                     tools = await self._build_tools(session)
                     
-                    messages = [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": pregunta}
-                    ]
+                    historial = cargar_historial(session_id)
+                    
+                    
+                    if not historial:
+                        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+                    else:
+                        messages = historial
+                    
+                    messages.append({"role": "user", "content": pregunta})
+                    
+                    guardar_mensaje(session_id, "user", pregunta)
                     
                     herramientas_usadas = []
+                    MAX_ITERACIONES = 10
+                    iteracion = 0
                     
                     while True:
+                        iteracion += 1
+                        if iteracion > MAX_ITERACIONES:
+                            respuesta = "No se pudo resolver en el limite de iteraciones."
+                            guardar_mensaje(session_id, "assistant", respuesta)
+                            return respuesta, herramientas_usadas
+                        
                         response = self.client.chat.completions.create(
                             model=self.model,
                             messages=messages,
@@ -75,6 +91,7 @@ class FinanceAgent:
                         message = response.choices[0].message
                         
                         if not message.tool_calls:
+                            guardar_mensaje(session_id, "assistant", message.content)
                             return message.content, herramientas_usadas
                         
                         messages.append(message)
