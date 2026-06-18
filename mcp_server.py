@@ -1,6 +1,6 @@
 import httpx
 import psycopg2
-from pgvector.psycopg import register_vector
+from pgvector.psycopg2 import register_vector
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from mcp.server import FastMCP
@@ -30,7 +30,7 @@ async def generar_embedding(texto:str) -> list[float]:
         return response.json()["embedding"]
   
   
-@mcp.tool
+@mcp.tool()
 def get_ventas(mes:int, año:int) -> dict:
     """
     Obtiene el total de ventas de un mes y año especifico.
@@ -57,37 +57,48 @@ def get_ventas(mes:int, año:int) -> dict:
     }
     
     
-@mcp.tool
-def get_gastos(mes: int, año:int) -> dict:
+@mcp.tool()
+def get_gastos(mes: int, año: int) -> dict:
     """
-    Obtiene el total de gastos de un mes y año especifico.
+    Obtiene el total de gastos de un mes y año específico.
     """
+
     conn = get_connection()
     cur = conn.cursor()
+
     cur.execute("""
         SELECT
-            categoria
-            SUM(monto) as total,
+            categoria,
+            SUM(monto) as total
         FROM gastos
         WHERE EXTRACT(MONTH FROM fecha) = %s
-        AND EXTRACT(YEAR FROM fecha) = %s
+          AND EXTRACT(YEAR FROM fecha) = %s
         GROUP BY categoria
         ORDER BY total DESC
-        """, (mes, año))
+    """, (mes, año))
+
     rows = cur.fetchall()
+
     conn.close()
-    
-    categorias = [{"categoria": r[0], "total": float(r[1])}for r in rows]
+
+    categorias = [
+        {
+            "categoria": r[0],
+            "total": float(r[1])
+        }
+        for r in rows
+    ]
+
     total = sum(c["total"] for c in categorias)
-    
-    return{
+
+    return {
         "mes": mes,
         "año": año,
         "total": total,
         "categorias": categorias
-        }
+    }
     
-@mcp.tool
+@mcp.tool()
 def get_presupuesto(mes:int, año:int) -> dict:
     """
     Obtiene el presupuesto planificado para un mes y año especifico.
@@ -113,7 +124,7 @@ def get_presupuesto(mes:int, año:int) -> dict:
     }
     
     
-@mcp.tool
+@mcp.tool()
 def comparar_vs_presupuesto(mes:int, año:int) -> dict:
     """
     Compara ventas y gastos relaes contra el presupuesto.
@@ -148,16 +159,27 @@ def comparar_vs_presupuesto(mes:int, año:int) -> dict:
     }
     
     
-@mcp.tool
-async def buscar_documentos(query:str, limite: int=3) -> list[dict]:
+@mcp.tool()
+def buscar_documentos(query: str, limite: int = 3) -> list[dict]:
     """
-    Busca en documentos financieros historicos usando similitud semantica.
-    Util para preguntas sobre reportes anteriores, politicas o contextos historicos
+    Busca en documentos financieros históricos usando similitud semántica.
+    Útil para preguntas sobre reportes anteriores, políticas, o contexto histórico.
     """
-    vector = await generar_embedding(query)
-    
-    conn = get_connection()
+    # Generar embedding de forma síncrona
+    with httpx.Client() as client:
+        response = client.post(
+            f"{settings.OLLAMA_BASE_URL}/api/embeddings",
+            json={
+                "model":  "nomic-embed-text",
+                "prompt": query
+            },
+            timeout=30.0
+        )
+        vector = response.json()["embedding"]
+
+    conn = get_vector_connection()
     cur = conn.cursor()
+
     cur.execute("""
         SELECT 
             contenido,
@@ -167,11 +189,18 @@ async def buscar_documentos(query:str, limite: int=3) -> list[dict]:
         ORDER BY embedding <-> %s::vector
         LIMIT %s
     """, (vector, vector, limite))
-    
+
     rows = cur.fetchall()
     conn.close()
-    
-    return [{"contenido": r[0], "fuente": r[1], "similitud": round(float(r[2]), 4)} for r in rows]
+
+    return [
+        {
+            "contenido": row[0],
+            "fuente":    row[1],
+            "similitud": round(float(row[2]), 4)
+        }
+        for row in rows
+    ]
 
 @mcp.tool()
 def generar_reporte_pdf(mes: int, año: int, contenido: str) -> dict:

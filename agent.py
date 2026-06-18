@@ -17,18 +17,29 @@ Reglas:
 - Cuando termines de recopilar datos, redacta una respuesta clara y estructurada
 - Siempre indica de qué fuente vienen los datos (base de datos o documentos históricos)
 - Si necesitas varios datos, llama las herramientas de una en una
+
+Herramientas disponibles y cuándo usarlas:
+- get_ventas: para consultar ventas reales de un mes/año específico
+- get_gastos: para consultar gastos reales de un mes/año específico
+- get_presupuesto: para consultar el presupuesto planificado de un mes/año
+- comparar_vs_presupuesto: para comparar real vs presupuesto de un mes/año
+- buscar_documentos: SIEMPRE que la pregunta mencione reportes anteriores, 
+  tendencias históricas, recomendaciones pasadas, políticas, o cualquier 
+  contexto que no sea un dato numérico directo. También úsala para 
+  complementar cualquier comparación entre períodos distintos.
+- generar_reporte_pdf: cuando el usuario pida generar o exportar un reporte
 """
 
 
 class FinanceAgent:
     
-    def __init__(self):
-        self.client = OpenAI(
-            base_url=settings.OLLAMA_URL,
-            api_key="ollama",
-        )
-        
-        self.model = settings.OLLAMA_MODEL_NAME
+        def __init__(self):
+            self.client = OpenAI(
+                base_url=settings.OLLAMA_URL,
+                api_key="ollama",
+            )
+            
+            self.model = settings.OLLAMA_MODEL
         
         async def run(self, pregunta:str) -> tuple[str, list[str]]:
             """
@@ -45,7 +56,7 @@ class FinanceAgent:
                     
                     await session.initialize()
                     
-                    tools = await self.build_tools(session)
+                    tools = await self._build_tools(session)
                     
                     messages = [
                         {"role": "system", "content": SYSTEM_PROMPT},
@@ -93,13 +104,13 @@ class FinanceAgent:
             mcp_tools = await session.list_tools()
             tools = []
             
-            for tool in mcp_tools:
+            for tool in mcp_tools.tools:
                 tools.append({
                     "type": "function",
                     "function": {
                         "name": tool.name,
                         "description": tool.description or "",
-                        "parameters": tool.parameters,
+                        "parameters": tool.inputSchema,
                     }
                 })
             return tools

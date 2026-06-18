@@ -1,3 +1,4 @@
+import traceback
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -50,15 +51,16 @@ async def ask(body: AskRequest):
     
     try:
         agent = FinanceAgent()
-        respuesta, herramientas = agent.run(body.pregunta)
+        respuesta, herramientas = await agent.run(body.pregunta)
         return AskResponse(respuesta=respuesta, herramientas_usadas=herramientas)
     
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     
 
-@app.get("/report/{año}/{mes}", response_model=ReportReponse)
-async def generate_report(año: int, mes: int):
+@app.get("/report/{anio}/{mes}", response_model=ReportReponse)
+async def generate_report(anio: int, mes: int):
   """
   Genera un reporte financiero mensual en PDF.
   El agente analiza los datos y construye el contenido,
@@ -73,21 +75,24 @@ async def generate_report(año: int, mes: int):
   try:
       agent = FinanceAgent()
       pregunta = (
-          f"Genera un reporte financiero completo del mes {mes} del año {año}. "
+          f"Genera un reporte financiero completo del mes {mes} del anio {anio}. "
           f"Incluye ventas totales, gastos, comparacion vs presupuesto, "
           f"y cualquier contexto relevante de reportes anteriores. "
           f"Luego genera el PDF con toda esa informacion."
       )
       
-      respuesta, _ = agent.run(pregunta)
+      respuesta, _ = await agent.run(pregunta)
       
-      return ReportReponse(mensaje=respuesta, ruta_pdf=f"reportes/{año}_{mes:02d}_reporte.pdf")
+      from mcp_server import generar_reporte_pdf
+      resultado = generar_reporte_pdf(mes=mes, año=anio, contenido=respuesta)
+      
+      return ReportReponse(mensaje=respuesta, ruta_pdf=resultado["ruta"])
   
   except Exception as e:
       raise HTTPException(status_code=500, detail=str(e))
   
   
-  if __name__ == "__main__":
+if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
   
     

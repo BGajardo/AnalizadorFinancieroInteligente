@@ -21,6 +21,7 @@ python-dotenv
 
 # Embeddings ()
 httpx
+pypdf2
 
 # Settings
 pydantic-settings
